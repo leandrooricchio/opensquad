@@ -1,17 +1,14 @@
 ---
 name: template-designer
-description: Interactive visual template selection for image design agents. Opens a local browser companion to choose, refine, and approve visual identity templates.
-type: hybrid
-version: "1.0.0"
-script:
-  path: scripts/start-server.sh
-  runtime: bash
+description: Visual template selection for image design agents. Generates template variations, renders them as images for user review, and saves the approved visual identity.
+type: prompt
+version: "2.0.0"
 categories: [design, visual, templates]
 ---
 
 # Template Designer
 
-Interactive visual companion for selecting and refining image templates during squad creation.
+Visual template selection and refinement for squad creation and editing.
 
 ## When to Use
 
@@ -23,46 +20,16 @@ Interactive visual companion for selecting and refining image templates during s
 
 - A squad with a design agent that produces images (uses `image-creator` skill)
 - Squad's `_build/` directory must exist (created during Discovery/Design phases)
-- Node.js available in PATH
+- `image-creator` skill installed (for rendering HTML to PNG)
 
 ## How It Works
 
-1. You start a local HTTP server that shows HTML templates in the browser
-2. You read the base templates from `skills/template-designer/base-templates/`
-3. You adapt them to the squad's context (platform, domain, tone, Sherlock data)
-4. The user views templates in the browser and gives feedback in the terminal
-5. You iterate until the user approves
+1. You read context and base templates
+2. You generate 3 adapted HTML template variations
+3. You render each as a PNG image using the `image-creator` skill
+4. You present the image file paths to the user for review
+5. You iterate with feedback until approval
 6. You save the approved template as HTML reference + structured style rules
-7. The server dies by inactivity timeout (30 min)
-
-## Starting the Server
-
-### On Windows (Git Bash)
-
-The server runs in the background on all platforms:
-
-~~~bash
-bash skills/template-designer/scripts/start-server.sh --session-dir "squads/{code}/_build/template-session"
-~~~
-
-The script prints the server info JSON on success. If it doesn't appear, read `squads/{code}/_build/template-session/state/server-info.json`.
-
-### On macOS/Linux
-
-~~~bash
-bash skills/template-designer/scripts/start-server.sh --session-dir "squads/{code}/_build/template-session"
-~~~
-
-The script backgrounds the server and prints the JSON with URL.
-
-### Server Info
-
-After starting, read `squads/{code}/_build/template-session/state/server-info.json`:
-~~~json
-{"type":"server-started","port":52341,"url":"http://localhost:52341","content_dir":"...","state_dir":"..."}
-~~~
-
-Tell the user to open the URL in their browser.
 
 ## Generating Templates
 
@@ -114,7 +81,7 @@ Read these files to understand the squad:
 - `_opensquad/_memory/company.md` — company name, brand, industry, target audience
 - `_opensquad/_memory/preferences.md` — user preferences (language, style, tone)
 
-Use the company context and user preferences to adapt template content: example text should reflect the company's domain and audience, colors should align with brand if available, and language should match the user's Output Language preference. If company context or preferences are not available, placeholder text (Lorem ipsum or similar) is fine.
+Use the company context and user preferences to adapt template content: example text should reflect the company's domain and audience, colors should align with brand if available, and language should match the user's Output Language preference.
 
 ### Step 2: Read Base Templates
 
@@ -128,62 +95,48 @@ Read the 3 base templates from `skills/template-designer/base-templates/`:
 For each base template, create an adapted version:
 - Adjust colors to match the squad's domain/brand (use Sherlock palette if available, company brand colors from company.md if available)
 - Adjust typography following the platform-specific minimum font sizes from `image-design.md`
-- Replace example content with domain-relevant content that reflects the company's industry, audience, and language. Use realistic text that demonstrates how the template would look with actual squad output.
+- Replace example content with domain-relevant content that reflects the company's industry, audience, and language
 - Set the root container to the exact fixed dimensions from HARD RULES above. Never use percentage heights or auto heights.
 - Add any visual elements that match the squad's personality
 - Apply proper white space, visual hierarchy, and spacing rhythm per `image-design.md` methodology
 
-Write each adapted template as a **content fragment** (no `<!DOCTYPE>` or `<html>` — the server wraps it in the frame template automatically).
+Write each adapted template as a **complete, self-contained HTML file** (with `<!DOCTYPE html>`, inline CSS, and Google Fonts imports if needed).
 
-### Step 4: Write to Content Directory
+Save to:
+- `squads/{code}/_build/template-a.html`
+- `squads/{code}/_build/template-b.html`
+- `squads/{code}/_build/template-c.html`
 
-Use the Write tool to create HTML files in the `content_dir` from `server-info.json`:
+### Step 4: Render as Images
 
-- First batch: `templates-overview.html` — shows all 3 adapted templates as cards for selection
-- Individual views: `template-a.html`, `template-b.html`, `template-c.html` — full-size previews
+Use the `image-creator` skill to render each HTML template as a PNG image:
 
-The server automatically serves the newest file.
+1. Read `skills/image-creator/SKILL.md` for rendering instructions
+2. Render each template HTML to PNG using the image-creator workflow
+3. Save rendered images to:
+   - `squads/{code}/_build/template-a.png`
+   - `squads/{code}/_build/template-b.png`
+   - `squads/{code}/_build/template-c.png`
 
-### Available CSS Classes (from frame template)
+### Step 5: Present to User
 
-Cards for template selection:
-~~~html
-<div class="cards">
-  <div class="card" data-choice="a" onclick="toggleSelect(this)">
-    <div class="card-image"><!-- scaled-down template preview --></div>
-    <div class="card-body"><h3>Name</h3><p>Description</p></div>
-  </div>
-</div>
-~~~
+Present the 3 template options to the user with the file paths so they can open and review:
 
-Options for A/B/C choices:
-~~~html
-<div class="options">
-  <div class="option" data-choice="a" onclick="toggleSelect(this)">
-    <div class="letter">A</div>
-    <div class="content"><h3>Title</h3><p>Description</p></div>
-  </div>
-</div>
-~~~
+> "Here are 3 template options for your squad's visual identity:
+>
+> A: `squads/{code}/_build/template-a.png`
+> B: `squads/{code}/_build/template-b.png`
+> C: `squads/{code}/_build/template-c.png`
+>
+> Open the images and tell me which one you prefer. I can also mix elements from different templates or adjust colors, fonts, and layout."
 
 ## Iteration Loop
 
-1. **Write HTML** to a new file in `content_dir` (use Write tool, never cat/heredoc)
-2. **Tell user** what's on screen and remind them of the URL
-3. **Wait for user response** in terminal
-4. **Read events** from `state_dir/events.jsonl` (if exists) to see browser clicks
-5. **Generate new version** based on feedback — write as new file (e.g., `template-v2.html`, `template-v3.html`)
-6. **Repeat** until user approves
-
-File naming: use semantic names, never reuse. Append version suffix for iterations.
-
-When returning to terminal-only questions (no visual needed), push a waiting screen:
-~~~html
-<!-- waiting.html -->
-<div style="display:flex;align-items:center;justify-content:center;min-height:60vh">
-  <p class="subtitle">Continuing in terminal...</p>
-</div>
-~~~
+1. Present template images with file paths
+2. Wait for user feedback in terminal
+3. Generate new version based on feedback — save as `template-v2.html`, render as `template-v2.png`, etc.
+4. Present updated image path to user
+5. Repeat until user approves
 
 ## Saving the Approved Template
 
@@ -244,17 +197,3 @@ If the squad already exists (editing flow):
 - Add `pipeline/data/template-reference.html` and `pipeline/data/visual-identity.md` to `squad.yaml` `data:` list
 - Update the design agent's `.agent.md` to reference both files
 - Update the design agent's tasks to include the rule: "always follow visual-identity.md and use template-reference.html as the base model"
-
-## Stopping the Server
-
-The server auto-stops after 30 minutes of inactivity. For manual stop:
-
-~~~bash
-bash skills/template-designer/scripts/stop-server.sh "squads/{code}/_build/template-session"
-~~~
-
-## Checking Server Status
-
-Before writing content, verify the server is alive:
-- Check if `state_dir/server-info.json` exists AND `state_dir/server-stopped` does NOT exist
-- If stopped, restart with `start-server.sh`
